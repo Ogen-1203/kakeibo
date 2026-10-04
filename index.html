@@ -14,7 +14,7 @@
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=DM+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap">
 <style>
 :root{
   --bg:#f4f6f5; --surface:#ffffff; --sunk:#eaeeec; --line:#d9dfdc;
@@ -23,7 +23,7 @@
   --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#b9c1bd;
   --good:#1a7f4b; --good-soft:#e2f3e9; --warn:#a86a00; --warn-soft:#fbf0d9; --q:#6b5bb5; --q-soft:#ece9f8;
   --font-d:"Zen Kaku Gothic New",system-ui,"Hiragino Sans","Yu Gothic",sans-serif;
-  --font-n:"DM Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+  --font-n:"Plus Jakarta Sans","Zen Kaku Gothic New",system-ui,"Hiragino Sans",sans-serif;
   --r:10px;
 }
 @media (prefers-color-scheme:dark){:root{
@@ -38,7 +38,7 @@ html{-webkit-text-size-adjust:100%;touch-action:pan-x pan-y}
 button,a,input,label,summary{touch-action:manipulation}
 body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--font-d);font-size:15px;line-height:1.6;padding-inline:max(16px, env(safe-area-inset-left), env(safe-area-inset-right));padding-block:calc(20px + env(safe-area-inset-top)) calc(48px + env(safe-area-inset-bottom))}
 .wrap{max-width:960px;margin:0 auto;display:flex;flex-direction:column;gap:20px}
-.num{font-family:var(--font-n);font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+.num{font-family:var(--font-n);font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1;letter-spacing:0}
 h1{font-size:1.5rem;font-weight:900;margin:0;letter-spacing:.02em}
 h2{font-size:1.05rem;font-weight:700;margin:0}
 .eyebrow{font-size:.72rem;letter-spacing:.12em;color:var(--muted);font-weight:500}
@@ -172,14 +172,13 @@ tfoot td{font-weight:700;border-bottom:0;border-top:2px solid var(--fg)}
 .acct-tag{background:var(--sunk);border-radius:6px;padding:2px 8px;white-space:nowrap}
 .acct-tag small{color:var(--muted);margin-right:4px;font-size:.72rem}
 .amt-row{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 12px}
-.amt-big{font-family:var(--font-n);font-size:1.5rem;font-weight:500;letter-spacing:-.01em}
+.amt-big{font-family:var(--font-n);font-size:1.5rem;font-weight:600;font-variant-numeric:tabular-nums;letter-spacing:0}
 .copy{font:inherit;font-size:.75rem;border:1px solid var(--line);background:var(--surface);color:var(--fg2);border-radius:6px;padding:2px 10px;cursor:pointer}
 .chunks{font-size:.8rem;color:var(--fg2)}
 .step details{font-size:.8rem;color:var(--fg2)}
 .step summary{cursor:pointer;color:var(--accent);width:max-content}
 .step details ul{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-direction:column;gap:3px}
 .step details li{display:flex;justify-content:space-between;gap:12px;border-bottom:1px dashed var(--line);padding-bottom:3px;max-width:420px}
-#tip{position:fixed;pointer-events:none;background:var(--fg);color:var(--bg);font-size:.78rem;padding:6px 10px;border-radius:6px;z-index:10;white-space:nowrap;transform:translate(-50%,-110%)}
 [hidden]{display:none!important}
 .lock{min-height:70vh;display:flex;align-items:center;justify-content:center}
 .lock-box{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:28px 24px;width:100%;max-width:320px;display:flex;flex-direction:column;gap:14px;text-align:center}
@@ -227,11 +226,6 @@ tfoot td{font-weight:700;border-bottom:0;border-top:2px solid var(--fg)}
   <section class="panel" id="p-overview">
     <div class="card hero">
       <div class="kpis" id="kpis"></div>
-      <div>
-        <div class="card-h" style="margin-bottom:8px"><h2>手取り収入の行き先</h2><span class="sub" id="alloc-sub"></span></div>
-        <div class="alloc" id="alloc"></div>
-        <div class="legend" id="alloc-legend"></div>
-      </div>
     </div>
     <div class="grid2">
       <div class="card">
@@ -239,11 +233,6 @@ tfoot td{font-weight:700;border-bottom:0;border-top:2px solid var(--fg)}
         <div class="bars" id="catbars"></div>
       </div>
       <div class="col">
-        <div class="card">
-          <div class="card-h"><h2>見直せる支出</h2><span class="pill ok">見直し：可</span></div>
-          <div class="review-total"><span class="v num" id="rev-v"></span><span class="note" id="rev-n"></span></div>
-          <ul class="list-plain" id="rev-list"></ul>
-        </div>
         <div class="card">
           <div class="card-h"><h2>お小遣い</h2><span class="sub">備考が「毎月給付」の項目の合計</span></div>
           <div class="people" id="people"></div>
@@ -321,7 +310,6 @@ tfoot td{font-weight:700;border-bottom:0;border-top:2px solid var(--fg)}
 
 
 </div>
-<div id="tip" hidden></div>
 
 <script>
 /* ===== 設定：Apps Script を「ウェブアプリ」としてデプロイした URL を貼る ===== */
@@ -386,23 +374,13 @@ const ALLOC = [
   { k: "rest", label: "残り（未配分）", c: "var(--s4)" },
 ];
 
-/* ---------- tooltip ---------- */
-const tip = $("tip");
-document.addEventListener("pointermove", e => {
-  if (window.__swiping) { tip.hidden = true; return; }
-  const t = e.target.closest("[data-tip]");
-  if (!t) { tip.hidden = true; return; }
-  tip.textContent = t.dataset.tip; tip.hidden = false;
-  tip.style.left = Math.min(Math.max(e.clientX, 90), innerWidth - 90) + "px";
-  tip.style.top = e.clientY + "px";
-});
 
 /* ---------- renderers ---------- */
 function allocBar(c, el, scale) {
   scale = scale || 1;
   el.innerHTML = ALLOC.map(a => {
     const v = Math.max(c[a.k], 0); const p = c.income ? v / c.income * 100 : 0;
-    return `<div style="flex:0 0 calc(${p * scale}% - 2px);background:${a.c}" data-tip="${a.label} ${yen(c[a.k])}円（${p.toFixed(1)}%）"></div>`;
+    return `<div style="flex:0 0 calc(${p * scale}% - 2px);background:${a.c}"></div>`;
   }).join("");
 }
 const legendHTML = c => ALLOC.map(a => `<span><i class="sw" style="background:${a.c}"></i>${a.label}${c ? ` <b class="num">${yen(c[a.k])}</b>` : ""}</span>`).join("");
@@ -415,29 +393,20 @@ function renderSeg() {
 }
 
 function renderOverview() {
-  const c = calc(state.sid), base = calc(DB.scenarios[0].name);
+  const c = calc(state.sid);
   $("warn").hidden = c.s.hasAmounts !== false;
   $("warn").textContent = `「支出」シートに「${state.sid}」の金額列が見つかりません。列の見出しをシナリオ名と同じにしてください。`;
-  const isBase = state.sid === DB.scenarios[0].name;
-  const d = (v, b) => isBase ? "" : `<div class="d num">${esc(DB.scenarios[0].name)}比 ${signed(v - b)}</div>`;
   $("kpis").innerHTML = [
-    ["月収入（G+E）", c.income, d(c.income, base.income), ""],
-    ["生活費", c.living, d(c.living, base.living), ""],
-    ["貯蓄・投資", c.savings, d(c.savings, base.savings), ""],
-    ["残り（未配分）", c.rest, d(c.rest, base.rest), c.rest < 0 ? "neg" : "em"],
-  ].map(([l, v, dd, cls]) => `<div class="kpi ${cls}"><div class="l">${l}</div><div class="v num">${yen(v)}<span class="u">円</span></div>${dd}</div>`).join("");
-  $("alloc-sub").textContent = c.income ? `貯蓄率 ${(c.savings / c.income * 100).toFixed(1)}% ・ 年間貯蓄 ${yen(c.savings * 12)}円` : "";
-  allocBar(c, $("alloc")); $("alloc-legend").innerHTML = legendHTML(c);
+    ["月収入（G+E）", c.income, ""],
+    ["生活費", c.living, ""],
+    ["貯蓄・投資", c.savings, ""],
+    ["残り（未配分）", c.rest, c.rest < 0 ? "neg" : "em"],
+  ].map(([l, v, cls]) => `<div class="kpi ${cls}"><div class="l">${l}</div><div class="v num">${yen(v)}<span class="u">円</span></div></div>`).join("");
 
   const list = c.livingByCat.filter(x => x.cat !== SAVING_CAT && x.amt > 0).sort((a, b) => b.amt - a.amt);
   const max = Math.max(1, ...list.map(x => x.amt));
-  $("catbars").innerHTML = list.map(x => `<div class="bar-row" data-tip="${esc(x.cat)} ${yen(x.amt)}円 ／ 年 ${yen(x.amt * 12)}円"><span>${esc(x.cat)}</span><div class="track"><div class="fill" style="width:${x.amt / max * 100}%"></div></div><span class="amt num">${yen(x.amt)}<span class="pct">${c.living ? (x.amt / c.living * 100).toFixed(0) : 0}%</span></span></div>`).join("") || `<p class="empty">支出がありません</p>`;
+  $("catbars").innerHTML = list.map(x => `<div class="bar-row"><span>${esc(x.cat)}</span><div class="track"><div class="fill" style="width:${x.amt / max * 100}%"></div></div><span class="amt num">${yen(x.amt)}<span class="pct">${c.living ? (x.amt / c.living * 100).toFixed(0) : 0}%</span></span></div>`).join("") || `<p class="empty">支出がありません</p>`;
 
-  const rev = c.items.filter(i => i.rk === "可" && i.amount > 0).sort((a, b) => b.amount - a.amount);
-  const rt = sum(rev.map(i => i.amount));
-  $("rev-v").textContent = yen(rt) + "円";
-  $("rev-n").textContent = `／月 ・ ${rev.length}項目（年 ${yen(rt * 12)}円）`;
-  $("rev-list").innerHTML = rev.map(i => `<li><span>${esc(i.name)} <span class="note">${esc(i.cat)}</span></span><span class="num">${yen(i.amount)}</span></li>`).join("");
 
   $("people").innerHTML = ["G", "E"].map(p => {
     const x = c.people[p];
@@ -725,7 +694,7 @@ window.addEventListener("resize", () => setPagerPos(pagerIndex, false));
       // 先に横に動いたら「スライド」、縦なら「スクロール」として扱う
       lock = Math.abs(dx) > Math.abs(dy) ? "h" : "v";
       if (lock === "h") {
-        window.__swiping = true; tip.hidden = true;
+        window.__swiping = true;
         const now = visualPagerPos();
         slideToken++;
         setPagerPos(now, false);
