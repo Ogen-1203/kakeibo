@@ -45,8 +45,9 @@ h2{font-size:1.05rem;font-weight:700;margin:0}
 header{display:flex;flex-wrap:wrap;gap:12px 24px;align-items:end;justify-content:space-between}
 header p{margin:2px 0 0;color:var(--fg2);font-size:.8rem;display:flex;gap:4px 12px;flex-wrap:wrap;align-items:center}
 header a,.linkbtn{color:var(--accent);font:inherit;font-size:.8rem;background:none;border:0;padding:0;cursor:pointer;text-decoration:underline;text-underline-offset:2px}
-.seg{display:flex;gap:4px;background:var(--sunk);padding:4px;border-radius:12px;flex-wrap:wrap}
-.seg button{font:inherit;font-size:.85rem;border:0;background:transparent;color:var(--fg2);padding:8px 14px;border-radius:9px;cursor:pointer;flex:1 1 auto;white-space:nowrap}
+.seg{display:flex;gap:4px;background:var(--sunk);padding:4px;border-radius:12px;flex-wrap:nowrap;width:100%}
+.seg button{font:inherit;font-size:.8rem;line-height:1.3;border:0;background:transparent;color:var(--fg2);padding:8px 4px;border-radius:9px;cursor:pointer;flex:1 1 0;min-width:0;white-space:normal;word-break:keep-all;overflow-wrap:anywhere;text-align:center;-webkit-tap-highlight-color:transparent}
+.seg .nw{white-space:nowrap}
 .seg button[aria-pressed="true"]{background:var(--surface);color:var(--fg);font-weight:700;box-shadow:0 1px 2px rgba(0,0,0,.08)}
 .seg small{display:block;font-size:.7rem;color:var(--muted);font-weight:400}
 button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
@@ -412,7 +413,7 @@ const legendHTML = c => ALLOC.map(a => `<span><i class="sw" style="background:${
 function renderSeg() {
   $("seg").innerHTML = DB.scenarios.map(s => {
     const inc = s.income.G + s.income.E;
-    return `<button data-sid="${esc(s.name)}" aria-pressed="${s.name === state.sid}">${esc(s.name)}<small class="num">収入 ${yen(inc)}</small></button>`;
+    return `<button data-sid="${esc(s.name)}" aria-pressed="${s.name === state.sid}">${String(s.name).split(/[ \u3000]+/).map(w => `<span class="nw">${esc(w)}</span>`).join(" ")}</button>`;
   }).join("");
 }
 
@@ -632,7 +633,7 @@ function render() {
   ensureScenario();
   $("fatal").hidden = !!state.sid;
   if (!state.sid) {
-    $("fatal").textContent = `シナリオを読み込めませんでした。「シナリオ/収入」シートの1行目に「シナリオ」という見出しがあり、2行目以降にシナリオ名が入っているか確認してください。（見つかったシート：${(DB.sheetNames || []).join("、") || "なし"}）`;
+    $("fatal").textContent = `シナリオを読み込めませんでした。「収入」シートの1行目に「シナリオ」という見出しがあり、2行目以降にシナリオ名が入っているか確認してください。（見つかったシート：${(DB.sheetNames || []).join("、") || "なし"}）`;
     return;
   }
   renderSeg();
