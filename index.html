@@ -148,6 +148,17 @@ tfoot td{font-weight:700;border-bottom:0;border-top:2px solid var(--fg)}
 .cmp-row .lab{display:flex;justify-content:space-between;font-size:.82rem;margin-bottom:4px;gap:8px;flex-wrap:wrap}
 .cmp-row .alloc{height:26px}
 .empty{color:var(--muted);font-size:.85rem}
+.badge{font-size:.72rem;font-weight:700;padding:2px 10px;border-radius:99px;background:var(--warn-soft);color:var(--warn)}
+.badge.ok{background:var(--good-soft);color:var(--good)}
+.act-grid{display:flex;flex-direction:column;gap:10px}
+.act-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center}
+.act-l{font-size:.88rem;font-weight:700;display:flex;flex-direction:column;line-height:1.35}
+.act-l small{font-weight:400;font-size:.72rem;color:var(--muted)}
+.act-in{display:flex;align-items:baseline;gap:4px}
+.act-input{width:8.2em;font:600 16px var(--font-n);font-variant-numeric:tabular-nums;text-align:right;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg)}
+.act-input:focus{outline:2px solid var(--accent);outline-offset:1px;background:var(--surface)}
+.act-input.filled{border-color:var(--good);background:var(--surface)}
+.act-foot{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-top:12px}
 .progress{height:8px;background:var(--sunk);border-radius:99px;overflow:hidden}
 .progress-bar{height:100%;background:var(--good);width:0;transition:width .3s ease}
 .plan-tools{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;justify-content:space-between;margin-top:12px}
@@ -254,6 +265,19 @@ tfoot td{font-weight:700;border-bottom:0;border-top:2px solid var(--fg)}
         <button class="linkbtn" id="plan-reset" type="button">チェックを外す</button>
       </div>
       <div id="plan-warn"></div>
+    </div>
+    <div class="card actual">
+      <div class="card-h"><h2>今月の実額</h2><span class="badge" id="act-badge"></span></div>
+      <p class="note" style="margin:-6px 0 12px">給料が入ったら、通帳やアプリに出ている金額をそのまま入れてください。送金額が1円単位で計算し直されます。空欄の間は、スプレッドシートの概算で表示します。</p>
+      <div class="act-grid">
+        <label class="act-row" for="act-G"><span class="act-l">G の給与<small id="act-G-sub"></small></span>
+          <span class="act-in"><input id="act-G" class="act-input" type="text" inputmode="numeric" autocomplete="off" placeholder=""><span class="u">円</span></span></label>
+        <label class="act-row" for="act-E"><span class="act-l">E の給与<small id="act-E-sub"></small></span>
+          <span class="act-in"><input id="act-E" class="act-input" type="text" inputmode="numeric" autocomplete="off" placeholder=""><span class="u">円</span></span></label>
+        <label class="act-row" for="act-J"><span class="act-l">J-WEST 請求額<small>三菱UFJから引落し（会社経費）<br>ない月は空欄</small></span>
+          <span class="act-in"><input id="act-J" class="act-input" type="text" inputmode="numeric" autocomplete="off" placeholder="0"><span class="u">円</span></span></label>
+      </div>
+      <div class="act-foot"><span class="note" id="act-diff"></span><button class="linkbtn" id="act-clear" type="button">入力を消す</button></div>
     </div>
     <div id="plan-days"></div>
     <div class="card">
@@ -448,8 +472,16 @@ function findAcct(owner, label) {
 }
 function splitBy(total, unit) { const out = []; let r = total; while (r > 0) { const x = Math.min(unit, r); out.push(x); r -= x; } return out; }
 
+/* 今月の実額（端末に月ごとに保存） */
+const actKey = () => `kakeibo-plan-actual-${monthKey()}`;
+function getActual() { try { return JSON.parse(localStorage.getItem(actKey()) || "{}"); } catch (e) { return {}; } }
+function setActual(a) { try { localStorage.setItem(actKey(), JSON.stringify(a)); } catch (e) {} }
+const toNum = v => { const n = Number(String(v || "").replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0)).replace(/[^0-9]/g, "")); return n > 0 ? n : 0; };
+
 function buildPlan(name) {
   const c = calc(name), S = DB.settings || {};
+  const A = getActual();
+  const incG = A.G > 0 ? A.G : c.s.income.G, incE = A.E > 0 ? A.E : c.s.income.E, jwest = A.J > 0 ? A.J : 0;
   const PER_TX = S.jcoinPerTx || 100000, PER_DAY = S.jcoinPerDay || 250000, JC = S.jcoinName || "J-Coin Pay";
   const day1 = S.payday || 25, day2 = day1 + 1;
   const gInc = c.s.account.G || "給与口座", eInc = c.s.account.E || "給与口座";
@@ -470,11 +502,13 @@ function buildPlan(name) {
     (pay[acct] = pay[acct] || []).push(line);
   });
   const tot = a => sum(a.map(l => l[1]));
+  // J-WESTカード（会社経費）：三菱UFJに上乗せして入れておく
+  if (jwest > 0) { const ufj = findAcct("G", "三菱UFJ"); (pay[ufj] = pay[ufj] || []).push(["J-WESTカード（会社経費）", jwest]); }
   const allowG = tot(allow.G), allowE = tot(allow.E);
   if (allowG) (pay[gAllowAcct] = pay[gAllowAcct] || []).push(...allow.G.map(([n, v]) => ["お小遣い：" + n, v]));
 
   // 2) G の給与：給与口座に残す分以外を J-Coin Pay 経由で各口座へ
-  const gMov = c.s.income.G - tot(stayG);
+  const gMov = incG - tot(stayG);
   const gDest = Object.entries(pay).map(([acct, lines]) => ({ to: { o: "G", a: acct }, amount: tot(lines), lines }));
   const food = tot(foodE);
   let payTotal = sum(gDest.map(d => d.amount));
@@ -488,7 +522,7 @@ function buildPlan(name) {
   const charge1 = Math.min(PER_DAY, jcTotal), charge2 = jcTotal - charge1;
 
   // 3) E の給与：お小遣いを残して1回で住信SBIへ
-  const eSend = c.s.income.E - allowE;
+  const eSend = incE - allowE;
   if (eSend < 0) warns.push("E の給与がお小遣いより少なくなっています。");
 
   // 4) 手順を組み立てる
@@ -498,7 +532,7 @@ function buildPlan(name) {
     lines: [["支払い・お小遣い用", Math.min(payTotal, charge1)]].concat(charge1 > payTotal ? [["貯蓄用（住信SBIへ）", charge1 - payTotal]] : []) });
   gDest.forEach(d => add(day1, { who: "G", purpose: d.to.o === "E" ? "食費" : d.to.a === gAllowAcct && allowG && d.amount === allowG ? "G のお小遣い" : `${d.to.a}の引落し・支払い`, from: { o: "G", a: JC }, to: d.to, amount: d.amount, chunks: splitBy(d.amount, PER_TX), method: "送金", lines: d.lines }));
   if (eSend > 0) add(day1, { who: "E", purpose: "E の給与を住信SBIへ（1回だけ）", from: { o: "E", a: eInc }, to: { o: "G", a: hub }, amount: eSend, chunks: [eSend], method: "振込",
-    lines: [["E の給与", c.s.income.E]].concat(allow.E.map(([n, v]) => ["残す：お小遣い（" + n + "）", -v])) });
+    lines: [["E の給与" + (A.E > 0 ? "（実額）" : "（概算）"), incE]].concat(allow.E.map(([n, v]) => ["残す：お小遣い（" + n + "）", -v])) });
   if (food > 0 && !foodByJcoin) add(day1, { who: "G", purpose: "食費", from: { o: "G", a: hub }, to: { o: "E", a: findAcct("E", "楽天") }, amount: food, chunks: [food], method: "振込", lines: foodE });
   const remDay = charge2 > 0 ? day2 : day1;
   if (charge2 > 0) add(day2, { who: "G", purpose: `${JC}に残りをチャージ`, from: { o: "G", a: gInc }, to: { o: "G", a: JC }, amount: charge2, chunks: splitBy(charge2, PER_TX), method: "チャージ", lines: [["1日の上限で前日に移せなかった分", charge2]] });
@@ -511,11 +545,11 @@ function buildPlan(name) {
   // 5) 振分後の残高（予備）
   const hubIn = (eSend > 0 ? eSend : 0) + (!keepRem && rem > 0 ? rem : 0) - (food > 0 && !foodByJcoin ? food : 0);
   const end = [
-    { label: `G ${gInc}`, amt: c.s.income.G - jcTotal, note: tot(stayG) ? `うち引落し ${yen(tot(stayG))}` : "" },
+    { label: `G ${gInc}`, amt: incG - jcTotal, note: tot(stayG) ? `うち引落し ${yen(tot(stayG))}` : "" },
     { label: `G ${hub}`, amt: hubIn - saveTot, note: "予備（未配分）" },
   ];
-  if (hubIn < saveTot) warns.push("住信SBIに入るお金が貯蓄の額より少なくなっています。");
-  return { c, steps, warns, end, days: [...new Set(steps.map(s => s.day))] };
+  if (hubIn < saveTot) warns.push(`住信SBIに入るお金が、貯蓄に分ける額より ${yen(saveTot - hubIn)}円 足りません。今月は貯蓄を減らすか、予備から補ってください。`);
+  return { c, steps, warns, end, days: [...new Set(steps.map(s => s.day))], A, incG, incE, jwest, estG: !(A.G > 0), estE: !(A.E > 0) };
 }
 
 function monthKey() { const d = new Date(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0"); }
@@ -523,8 +557,28 @@ const doneKey = () => `kakeibo-plan-done-${monthKey()}-${nrm(state.sid)}`;
 const getDone = () => { try { return new Set(JSON.parse(localStorage.getItem(doneKey()) || "[]")); } catch (e) { return new Set(); } };
 const setDone = set => { try { localStorage.setItem(doneKey(), JSON.stringify([...set])); } catch (e) {} };
 
+function renderActual(P) {
+  const c = P.c;
+  [["G", c.s.income.G, c.s.account.G], ["E", c.s.income.E, c.s.account.E]].forEach(([k, est, acct]) => {
+    const el = $("act-" + k);
+    el.placeholder = "概算 " + yen(est);
+    if (document.activeElement !== el) el.value = P.A[k] > 0 ? yen(P.A[k]) : "";
+    el.classList.toggle("filled", P.A[k] > 0);
+    $("act-" + k + "-sub").textContent = `${acct || "給与口座"}に入金された額`;
+  });
+  const j = $("act-J");
+  if (document.activeElement !== j) j.value = P.A.J > 0 ? yen(P.A.J) : "";
+  j.classList.toggle("filled", P.A.J > 0);
+  const both = !P.estG && !P.estE;
+  $("act-badge").textContent = both ? "実額で計算中" : (P.estG && P.estE ? "概算で表示中" : "一部が概算");
+  $("act-badge").classList.toggle("ok", both);
+  const d = (P.incG - c.s.income.G) + (P.incE - c.s.income.E);
+  $("act-diff").textContent = (!P.estG || !P.estE) && d !== 0 ? `概算との差：${d > 0 ? "+" : "−"}${yen(Math.abs(d))}円（差は住信SBIの予備で調整）` : "";
+}
+
 function renderPlan() {
   const P = buildPlan(state.sid), done = getDone(), who = state.who || "";
+  renderActual(P);
   const now = new Date();
   $("plan-title").textContent = `${now.getFullYear()}年${now.getMonth() + 1}月の振分`;
   $("plan-sub").textContent = `シナリオ：${state.sid}`;
@@ -740,6 +794,24 @@ $("plan-days").addEventListener("click", e => {
   const b = e.target.closest(".copy"); if (!b) return;
   const v = b.dataset.copy, done = () => { b.textContent = "コピーしました"; setTimeout(() => b.textContent = "金額をコピー", 1500); };
   try { navigator.clipboard.writeText(v).then(done, () => { b.textContent = v; }); } catch (err) { b.textContent = v; }
+});
+["G", "E", "J"].forEach(k => {
+  const el = $("act-" + k);
+  el.addEventListener("input", () => {
+    const pos = el.value.length;
+    const n = toNum(el.value);
+    el.value = n ? yen(n) : "";
+    const a = getActual(); if (n) a[k] = n; else delete a[k]; setActual(a);
+    renderPlan();
+  });
+  el.addEventListener("focus", () => { setTimeout(() => { try { el.setSelectionRange(el.value.length, el.value.length); } catch (e) {} }, 0); });
+  el.addEventListener("blur", () => renderPlan());
+});
+let actClearArmed = false;
+$("act-clear").addEventListener("click", () => {
+  const b = $("act-clear");
+  if (!actClearArmed) { actClearArmed = true; b.textContent = "もう一度押すと消します"; setTimeout(() => { actClearArmed = false; b.textContent = "入力を消す"; }, 3000); return; }
+  actClearArmed = false; b.textContent = "入力を消す"; setActual({}); renderPlan();
 });
 $("plan-who").addEventListener("click", e => { const b = e.target.closest(".chip"); if (!b) return; state.who = b.dataset.who; renderPlan(); save(); });
 let resetArmed = false;
