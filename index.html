@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>収支プラン</title>
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#f4f6f5" media="(prefers-color-scheme: light)">
@@ -34,7 +34,8 @@
   --good:#5cc68e; --good-soft:#18301f; --warn:#e2a93a; --warn-soft:#352a14; --q:#a99cf0; --q-soft:#2a2540;
   color-scheme:dark}}
 *{box-sizing:border-box}
-html{-webkit-text-size-adjust:100%}
+html{-webkit-text-size-adjust:100%;touch-action:pan-x pan-y}
+button,a,input,label,summary{touch-action:manipulation}
 body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--font-d);font-size:15px;line-height:1.6;padding-inline:max(16px, env(safe-area-inset-left), env(safe-area-inset-right));padding-block:calc(20px + env(safe-area-inset-top)) calc(48px + env(safe-area-inset-bottom))}
 .wrap{max-width:960px;margin:0 auto;display:flex;flex-direction:column;gap:20px}
 .num{font-family:var(--font-n);font-variant-numeric:tabular-nums;letter-spacing:-.01em}
@@ -206,9 +207,7 @@ tfoot td{font-weight:700;border-bottom:0;border-top:2px solid var(--fg)}
     <div>
       <div class="eyebrow">HOUSEHOLD PLAN ・ G &amp; E</div>
       <h1>わが家の収支プラン</h1>
-      <p><span>月額ベース ・ <span id="loaded"></span> 時点</span>
-        <button class="linkbtn" id="reload" type="button">再読み込み</button>
-        <a href="" id="sheet-link" target="_blank" rel="noopener">データを編集</a>
+      <p><button class="linkbtn" id="reload" type="button">再読み込み</button>
         <button class="linkbtn" id="logout" type="button">ロック</button></p>
     </div>
     <div class="seg" id="seg" role="group" aria-label="シナリオ"></div>
@@ -220,7 +219,6 @@ tfoot td{font-weight:700;border-bottom:0;border-top:2px solid var(--fg)}
     <button role="tab" data-tab="plan" aria-selected="false">今月の振分</button>
     <button role="tab" data-tab="detail" aria-selected="false">明細</button>
     <button role="tab" data-tab="flow" aria-selected="false">口座</button>
-    <button role="tab" data-tab="compare" aria-selected="false">シナリオ比較</button>
   </nav>
 
   <div class="banner" id="fatal" hidden></div>
@@ -317,17 +315,6 @@ tfoot td{font-weight:700;border-bottom:0;border-top:2px solid var(--fg)}
       <div class="acct-grid" id="cards"></div>
     </div>
   </section>
-  <section class="panel" id="p-compare">
-    <div class="card">
-      <div class="card-h"><h2>収入の行き先（シナリオ別）</h2><span class="sub">バーの長さ = 月収入</span></div>
-      <div class="cmp-rows" id="cmp-alloc"></div>
-      <div class="legend" id="cmp-legend"></div>
-    </div>
-    <div class="card">
-      <div class="card-h"><h2>カテゴリ別の月額</h2><span class="sub" id="cmp-sub"></span></div>
-      <div class="tbl-wrap"><table id="cmp-table"></table></div>
-    </div>
-  </section>
   </div></div>
 
 
@@ -338,8 +325,7 @@ tfoot td{font-weight:700;border-bottom:0;border-top:2px solid var(--fg)}
 
 <script>
 /* ===== 設定：Apps Script を「ウェブアプリ」としてデプロイした URL を貼る ===== */
-const API_URL = "https://script.google.com/macros/s/AKfycbxNdaj1AqsAYWJ21Hm8PsGarQGiIZjBMLjfk24G0kgbqsvRFWS_4INmjsg_yKb6Be0sKw/exec";
-const SHEET_URL = "https://docs.google.com/spreadsheets/d/1dG52_VgAKJGBob6YsEKEA3gudU8_cm7lRoismA4Kb-I/edit";
+const API_URL = "ここにApps ScriptのウェブアプリURLを貼り付け";
 
 let DB = null;
 const CODE_KEY = "kakeibo-plan-pin";
@@ -618,29 +604,9 @@ function renderFlow() {
   $("cards").innerHTML = cardOwners.map(p => `<div class="acct"><div class="eyebrow" style="margin-bottom:6px">${esc(p)} のカード</div><ul class="list-plain" style="margin:0">${cards.filter(a => a["名義"] === p).map(a => `<li class="${a["状態"] === "休眠" ? "sleep" : ""}"><span>${esc(a["カード名"])}</span><span>${a["状態"] === "休眠" ? "休眠" : esc(a["用途"] || "")}${a["備考"] ? `<br><span class="note">${esc(a["備考"])}</span>` : ""}</span></li>`).join("")}</ul></div>`).join("");
 }
 
-function renderCompare() {
-  const cs = DB.scenarios.map(s => calc(s.name));
-  const maxInc = Math.max(1, ...cs.map(c => c.income));
-  $("cmp-alloc").innerHTML = cs.map((c, i) => `<div class="cmp-row"><div class="lab"><b>${esc(c.s.name)}</b><span class="num">収入 ${yen(c.income)} ・ 残り ${yen(c.rest)}</span></div><div class="alloc" id="cmp-${i}"></div></div>`).join("");
-  cs.forEach((c, i) => allocBar(c, $("cmp-" + i), c.income / maxInc));
-  $("cmp-legend").innerHTML = legendHTML(null);
-  $("cmp-sub").textContent = `差額は${DB.scenarios[0].name}比`;
-  const cell = (v, b, goodWhenUp) => {
-    if (v === b) return `<span class="note">±0</span>`;
-    const up = v > b; const cls = (up === !!goodWhenUp) ? "diff-down" : "diff-up";
-    return `<span class="${cls}">${signed(v - b)}</span>`;
-  };
-  const cl = cats();
-  let h = `<thead><tr><th>カテゴリ</th>${cs.map((c, i) => `<th class="r">${esc(c.s.name)}</th>${i ? `<th class="r">差額</th>` : ""}`).join("")}</tr></thead><tbody>`;
-  cl.forEach((cat, ci) => { h += `<tr><td>${esc(cat)}</td>${cs.map((c, i) => `<td class="r num">${yen(c.byCat[ci].amt)}</td>${i ? `<td class="r num">${cell(c.byCat[ci].amt, cs[0].byCat[ci].amt, cat === SAVING_CAT)}</td>` : ""}`).join("")}</tr>`; });
-  const row = (lab, k, goodUp) => `<tr><td><b>${lab}</b></td>${cs.map((c, i) => `<td class="r num"><b>${yen(c[k])}</b></td>${i ? `<td class="r num">${cell(c[k], cs[0][k], goodUp)}</td>` : ""}`).join("")}</tr>`;
-  h += `</tbody><tfoot>${row("支出合計（貯蓄込）", "expenseTotal")}</tfoot><tbody>${row("収入", "income", true)}${row("お小遣い（毎月給付）", "allowance")}${row("残り（未配分）", "rest", true)}</tbody>`;
-  $("cmp-table").innerHTML = h;
-}
 
 function render() {
   ensureScenario();
-  $("loaded").textContent = DB.loadedAt;
   $("fatal").hidden = !!state.sid;
   if (!state.sid) {
     $("fatal").textContent = `シナリオを読み込めませんでした。「シナリオ/収入」シートの1行目に「シナリオ」という見出しがあり、2行目以降にシナリオ名が入っているか確認してください。（見つかったシート：${(DB.sheetNames || []).join("、") || "なし"}）`;
@@ -648,12 +614,11 @@ function render() {
   }
   renderSeg();
   // スライドで切り替えるため、すべてのタブの中身を描いておく
-  [renderOverview, renderPlan, renderDetail, renderFlow, renderCompare].forEach(f => { try { f(); } catch (e) { console.error(e); } });
+  [renderOverview, renderPlan, renderDetail, renderFlow].forEach(f => { try { f(); } catch (e) { console.error(e); } });
   if (!TAB_IDS.includes(state.tab)) state.tab = "overview";
   pagerIndex = TAB_IDS.indexOf(state.tab);
   setPagerPos(pagerIndex, false);
   setTabLabel(pagerIndex);
-  $("seg").style.visibility = state.tab === "compare" ? "hidden" : "visible";
   syncPagerHeight();
   save();
 }
@@ -664,14 +629,14 @@ const nrm = v => String(v == null ? "" : v).normalize("NFKC").replace(/\s/g, "")
 $("tabs").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; goToTab(TAB_IDS.indexOf(b.dataset.tab)); });
 
 /* ---------- タブのスライド切り替え ---------- */
-const TAB_IDS = ["overview", "plan", "detail", "flow", "compare"];
+const TAB_IDS = ["overview", "plan", "detail", "flow"];
 let pagerIndex = 0, slideToken = 0;
 const N_TABS = TAB_IDS.length;
 $("pager-track").style.width = (N_TABS * 100) + "%";
 TAB_IDS.forEach(t => { const p = $("p-" + t); p.style.flex = `0 0 ${100 / N_TABS}%`; p.style.width = `${100 / N_TABS}%`; });
 const tabBtns = () => TAB_IDS.map(t => document.querySelector(`#tabs button[data-tab="${t}"]`));
 
-/** p = 0（概要）〜 4（比較）の位置に、画面と下線を動かす（小数なら途中の位置） */
+/** p = 0（概要）〜 3（口座）の位置に、画面と下線を動かす（小数なら途中の位置） */
 function setPagerPos(p, animate) {
   const track = $("pager-track"), ink = $("tab-ink");
   track.classList.toggle("anim-slide", !!animate);
@@ -710,7 +675,6 @@ function finishMove() {
   $("pager").classList.remove("moving");
   $("pager-track").classList.remove("anim-slide");
   $("tab-ink").classList.remove("anim-slide");
-  $("seg").style.visibility = state.tab === "compare" ? "hidden" : "visible";
   syncPagerHeight();
   save();
 }
@@ -815,6 +779,10 @@ $("plan-reset").addEventListener("click", () => {
   if (!resetArmed) { resetArmed = true; b.textContent = "もう一度押すとチェックを外します"; setTimeout(() => { resetArmed = false; b.textContent = "チェックを外す"; }, 3000); return; }
   resetArmed = false; b.textContent = "チェックを外す"; setDone(new Set()); renderPlan();
 });
+// 2本指の拡大をしない（iPhone はメタタグだけでは止まらないため）
+document.addEventListener("gesturestart", e => e.preventDefault());
+document.addEventListener("gesturechange", e => e.preventDefault());
+document.addEventListener("touchmove", e => { if (e.scale && e.scale !== 1) e.preventDefault(); }, { passive: false });
 /* ---------- PIN ---------- */
 const PIN_LEN = 6;
 const getCode = () => { try { return localStorage.getItem(CODE_KEY) || ""; } catch (e) { return ""; } };
@@ -890,7 +858,6 @@ $("reload").addEventListener("click", () => {
 });
 $("logout").addEventListener("click", () => { setCode(""); DB = null; showLock("ロックしました。", true); });
 
-$("sheet-link").href = SHEET_URL;
 // オフラインでも画面が開けるように、画面ファイルだけを端末に保存しておく
 if ("serviceWorker" in navigator) { try { navigator.serviceWorker.register("sw.js"); } catch (e) {} }
 // 起動：この端末に PIN が残っていればそのまま開く
