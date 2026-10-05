@@ -257,20 +257,6 @@ tfoot td{font-weight:700;border-bottom:0;border-top:2px solid var(--fg)}
     </div>
   </section>
   <section class="panel" id="p-plan">
-    <div class="card plan-head">
-      <div class="card-h" style="margin-bottom:10px"><h2 id="plan-title">今月の振分</h2><span class="sub" id="plan-sub"></span></div>
-      <div class="progress"><div class="progress-bar" id="plan-bar"></div></div>
-      <div class="plan-tools">
-        <span class="note" id="plan-count"></span>
-        <div class="fgroup" id="plan-who">
-          <button class="chip" data-who="">全員</button>
-          <button class="chip" data-who="G">G の手順</button>
-          <button class="chip" data-who="E">E の手順</button>
-        </div>
-        <button class="linkbtn" id="plan-reset" type="button">チェックを外す</button>
-      </div>
-      <div id="plan-warn"></div>
-    </div>
     <div class="card actual">
       <div class="card-h"><h2>今月の実額</h2><span class="badge" id="act-badge"></span></div>
       <p class="note" style="margin:-6px 0 12px">給料が入ったら、通帳やアプリに出ている金額をそのまま入れてください。送金額が1円単位で計算し直されます。空欄の間は、スプレッドシートの概算で表示します。</p>
@@ -284,11 +270,8 @@ tfoot td{font-weight:700;border-bottom:0;border-top:2px solid var(--fg)}
       </div>
       <div class="act-foot"><span class="note" id="act-diff"></span><button class="linkbtn" id="act-clear" type="button">入力を消す</button></div>
     </div>
+    <div id="plan-warn"></div>
     <div id="plan-days"></div>
-    <div class="card">
-      <div class="card-h"><h2>振分が終わったあとの残高</h2><span class="sub">引落し・積立の前の状態</span></div>
-      <div class="banks" id="plan-end"></div>
-    </div>
   </section>
   <section class="panel" id="p-detail">
     <div class="card">
@@ -490,71 +473,103 @@ function buildPlan(name) {
   const PER_TX = S.jcoinPerTx || 100000, PER_DAY = S.jcoinPerDay || 250000, JC = S.jcoinName || "J-Coin Pay";
   const day1 = S.payday || 25, day2 = day1 + 1;
   const gInc = c.s.account.G || "給与口座", eInc = c.s.account.E || "給与口座";
-  const hub = findAcct("G", S.hubAccount || "住信SBI");
-  const gAllowAcct = findAcct("G", S.allowanceAccountG || "三井住友");
+  const master = DB.accountMaster || [];
   const warns = [];
 
-  // 1) 項目を「どの口座に用意するお金か」に振り分ける
+  // ---- 口座の性質（口座マスタ・口座シートから判断） ----
+  // ハブ口座：口座シートの G の口座で、備考に「ハブ」とあるもの（なければ設定の名前）
+  const hubRow = DB.accounts.find(a => a["名義"] === "G" && /ハブ/.test(String(a["備考"] || "")));
+  const hub = hubRow ? hubRow["口座名"] : findAcct("G", S.hubAccount || "ドコモ");
+  const hubNames = [hub, S.hubAccount, "住信SBI", "SBI"].filter(Boolean).map(nrm);   // 旧名でも貯蓄口座とみなす
+  const isHub = label => { const p = nrm(label); return !!p && hubNames.some(h => p === h || p.includes(h) || h.includes(p)); };
+  // J-Coin Pay で送れない口座：口座マスタの備考に「J-Coin…不可」とある口座（なければ設定）
+  const jcBlocked = acct => {
+    const n = nrm(acct);
+    const m = master.find(r => nrm(r["口座名"]) === n);
+    if (m && /J-?Coin/i.test(String(m["備考"] || "")) && /不可/.test(String(m["備考"] || ""))) return true;
+    return (S.jcoinBlocked || ["楽天"]).some(b => nrm(b) === n);
+  };
+  const sameBank = (a, b) => nrm(a) === nrm(b);
+  const FREE = Object.assign({ "ドコモ": 10, "三井住友": 3 }, S.freeTransfers || {});
+  const freeLeft = {};                                   // 他行振込の無料枠（月の回数）を数える
+  const otherBank = (from) => { const k = nrm(from); freeLeft[k] = (freeLeft[k] || 0) + 1; const lim = FREE[from] ?? FREE[Object.keys(FREE).find(x => nrm(x) === k)]; return lim ? `他行振込（${from}の無料枠 ${freeLeft[k]}/${lim}回目）` : "他行振込"; };
+  const gAllowAcct = findAcct("G", S.allowanceAccountG || "三井住友");
+  const eRak = findAcct("E", "楽天");
+
+  // ---- 1) 項目を「どの口座に用意するお金か」に分ける ----
   const stayG = [], foodE = [], save = [], allow = { G: [], E: [] }, pay = {};
   c.items.filter(i => i.amount > 0).forEach(i => {
     const line = [i.name, i.amount];
     if (i.monthly) { (allow[i.owner] || allow.G).push(line); return; }
     if (/E楽天/.test(i.note)) { foodE.push(line); return; }
     const p = nrm(i.pay);
-    if (p && (nrm(gInc).includes(p) || p.includes(nrm(gInc)))) { stayG.push(line); return; }
-    if (p.includes("SBI") || p === "現金") { save.push(line); return; }
+    if (p && (nrm(gInc).includes(p) || p.includes(nrm(gInc)))) { stayG.push(line); return; }   // 給与口座から引落し（住宅ローン・新居の家賃）
+    if (isHub(i.pay) || p === "現金") { save.push(line); return; }                         // 貯蓄・積立
     const acct = findAcct("G", i.pay || "未設定");
     (pay[acct] = pay[acct] || []).push(line);
   });
   const tot = a => sum(a.map(l => l[1]));
-  // J-WESTカード（会社経費）：三菱UFJに上乗せして入れておく
   if (jwest > 0) { const ufj = findAcct("G", "三菱UFJ"); (pay[ufj] = pay[ufj] || []).push(["J-WESTカード（会社経費）", jwest]); }
   const allowG = tot(allow.G), allowE = tot(allow.E);
   if (allowG) (pay[gAllowAcct] = pay[gAllowAcct] || []).push(...allow.G.map(([n, v]) => ["お小遣い：" + n, v]));
-
-  // 2) G の給与：給与口座に残す分以外を J-Coin Pay 経由で各口座へ
-  const gMov = incG - tot(stayG);
-  const gDest = Object.entries(pay).map(([acct, lines]) => ({ to: { o: "G", a: acct }, amount: tot(lines), lines }));
   const food = tot(foodE);
-  let payTotal = sum(gDest.map(d => d.amount));
-  const foodByJcoin = food > 0 && payTotal + food <= Math.min(gMov, PER_DAY);
-  if (foodByJcoin) { gDest.push({ to: { o: "E", a: findAcct("E", "楽天") }, amount: food, lines: foodE }); payTotal += food; }
-  if (payTotal > gMov) warns.push(`G の給与だけでは支払い用の送金（${yen(payTotal)}円）が足りません。`);
-  if (payTotal > PER_DAY) warns.push(`J-Coin Pay の1日の上限（${yen(PER_DAY)}円）を超える支払いがあります。一部が${day2}日になります。`);
-  let rem = gMov - payTotal;
-  const keepRem = rem > 0 && rem < (S.keepIfUnder || 10000);
-  const jcTotal = keepRem ? payTotal : gMov;
-  const charge1 = Math.min(PER_DAY, jcTotal), charge2 = jcTotal - charge1;
 
-  // 3) E の給与：お小遣いを残して1回で住信SBIへ
-  const eSend = incE - allowE;
+  // J-Coin Pay で直接送れる口座と、ハブ口座から入れる口座（楽天など）に分ける
+  const direct = [], viaHub = [];
+  Object.entries(pay).forEach(([acct, lines]) => (jcBlocked(acct) ? viaHub : direct).push({ acct, lines, amount: tot(lines) }));
+
+  // ---- 2) お金の動きを計算する ----
+  const gMov = incG - tot(stayG);                       // 池田泉州は給与と住宅ローンだけに使うので、残りは全部動かす
+  const pDirect = sum(direct.map(d => d.amount));
+  const rem = gMov - pDirect;                           // G の残り → ハブ口座
+  if (rem < 0) warns.push(`G の給与だけでは、J-Coin Pay で送る支払い（${yen(pDirect)}円）が足りません。`);
+  const charge1 = Math.min(PER_DAY, Math.max(gMov, 0)), charge2 = Math.max(gMov, 0) - charge1;
+  if (pDirect > charge1) warns.push(`J-Coin Pay の1日の上限（${yen(PER_DAY)}円）を超える支払いがあります。`);
+  const eSend = incE - allowE;                          // E は1回だけ：お小遣いを残してハブ口座へ
   if (eSend < 0) warns.push("E の給与がお小遣いより少なくなっています。");
 
-  // 4) 手順を組み立てる
+  // ハブ口座から入れるお金（楽天の引落し分＋食費）。食費は同じ銀行（楽天）の中で E へ回す
+  const rakBucket = viaHub.find(v => sameBank(v.acct, eRak));
+  const hubOutList = viaHub.map(v => ({ to: { o: "G", a: v.acct }, amount: v.amount + (v === rakBucket ? food : 0),
+    lines: v.lines.concat(v === rakBucket && food ? foodE.map(([n, x]) => [n + "（このあと E楽天へ）", x]) : []) }));
+  if (food > 0 && !rakBucket) hubOutList.push({ to: { o: "E", a: eRak }, amount: food, lines: foodE });
+  const hubOut = sum(hubOutList.map(h => h.amount));
+  // 25日のうちに楽天へ入れられるよう、必要なら G の残りの一部を25日にハブへ送る
+  const need1 = Math.max(0, hubOut - Math.max(eSend, 0));
+  const remDay1 = charge2 > 0 ? Math.max(0, Math.min(rem, charge1 - pDirect, need1)) : Math.max(rem, 0);
+  const remDay2 = Math.max(rem, 0) - remDay1;
+  const hubDay = (Math.max(eSend, 0) + remDay1 >= hubOut) ? day1 : day2;
+  if (hubDay !== day1 && hubOut > 0) warns.push(`ハブ口座のお金が足りないため、楽天への入金が${day2}日になります（27日の引落しには間に合います）。`);
+
+  // ---- 3) 手順 ----
   const steps = [];
   const add = (day, st) => steps.push(Object.assign({ day }, st));
-  if (charge1 > 0) add(day1, { who: "G", purpose: `${JC}にチャージ`, from: { o: "G", a: gInc }, to: { o: "G", a: JC }, amount: charge1, chunks: splitBy(charge1, PER_TX), method: "チャージ",
-    lines: [["支払い・お小遣い用", Math.min(payTotal, charge1)]].concat(charge1 > payTotal ? [["貯蓄用（住信SBIへ）", charge1 - payTotal]] : []) });
-  gDest.forEach(d => add(day1, { who: "G", purpose: d.to.o === "E" ? "食費" : d.to.a === gAllowAcct && allowG && d.amount === allowG ? "G のお小遣い" : `${d.to.a}の引落し・支払い`, from: { o: "G", a: JC }, to: d.to, amount: d.amount, chunks: splitBy(d.amount, PER_TX), method: "送金", lines: d.lines }));
-  if (eSend > 0) add(day1, { who: "E", purpose: "E の給与を住信SBIへ（1回だけ）", from: { o: "E", a: eInc }, to: { o: "G", a: hub }, amount: eSend, chunks: [eSend], method: "振込",
+  if (charge1 > 0) add(day1, { who: "G", purpose: `${JC}にチャージ`, from: { o: "G", a: gInc }, to: { o: "G", a: JC }, amount: charge1, chunks: splitBy(charge1, PER_TX), method: "チャージ（無料）",
+    lines: [["支払い・お小遣い用", pDirect]].concat(remDay1 ? [[hub + "へ送る分", remDay1]] : []).concat(charge2 ? [] : (rem - remDay1 > 0 ? [[hub + "へ送る分", rem - remDay1]] : [])) });
+  direct.forEach(d => add(day1, { who: "G", purpose: d.acct === gAllowAcct && allowG && d.amount === allowG ? "G のお小遣い" : `${d.acct}へ（引落し分）`,
+    from: { o: "G", a: JC }, to: { o: "G", a: d.acct }, amount: d.amount, chunks: splitBy(d.amount, PER_TX), method: "J-Coin Pay（無料）", lines: d.lines }));
+  if (remDay1 > 0) add(day1, { who: "G", purpose: `G の残りを${hub}へ`, from: { o: "G", a: JC }, to: { o: "G", a: hub }, amount: remDay1, chunks: splitBy(remDay1, PER_TX), method: "J-Coin Pay（無料）",
+    lines: [["G の給与から支払い・お小遣いを引いた残り", remDay1]] });
+  if (eSend > 0) add(day1, { who: "E", purpose: `E の給与を${hub}へ（1回だけ）`, from: { o: "E", a: eInc }, to: { o: "G", a: hub }, amount: eSend, chunks: [eSend], method: sameBank(eInc, hub) ? "同じ銀行（無料）" : otherBank(eInc),
     lines: [["E の給与" + (A.E > 0 ? "（実額）" : "（概算）"), incE]].concat(allow.E.map(([n, v]) => ["残す：お小遣い（" + n + "）", -v])) });
-  if (food > 0 && !foodByJcoin) add(day1, { who: "G", purpose: "食費", from: { o: "G", a: hub }, to: { o: "E", a: findAcct("E", "楽天") }, amount: food, chunks: [food], method: "振込", lines: foodE });
-  const remDay = charge2 > 0 ? day2 : day1;
-  if (charge2 > 0) add(day2, { who: "G", purpose: `${JC}に残りをチャージ`, from: { o: "G", a: gInc }, to: { o: "G", a: JC }, amount: charge2, chunks: splitBy(charge2, PER_TX), method: "チャージ", lines: [["1日の上限で前日に移せなかった分", charge2]] });
-  if (!keepRem && rem > 0) add(remDay, { who: "G", purpose: "G の残りを住信SBIへ", from: { o: "G", a: JC }, to: { o: "G", a: hub }, amount: rem, chunks: splitBy(rem, PER_TX), method: "送金", lines: [["G の給与から支払い・お小遣いを引いた残り", rem]] });
-  const saveTot = tot(save);
-  if (saveTot > 0) add(remDay, { who: "G", purpose: "住信SBIの中で貯蓄に分ける", from: { o: "G", a: hub }, to: { o: "G", a: hub + "（貯蓄）" }, amount: saveTot, chunks: [saveTot], method: "口座内振替", lines: save });
+  hubOutList.forEach(h => add(hubDay, { who: "G", purpose: h.to.o === "E" ? "食費" : `${h.to.a}へ（引落し分${rakBucket && h.to.a === rakBucket.acct && food ? "＋食費" : ""}）`,
+    from: { o: "G", a: hub }, to: h.to, amount: h.amount, chunks: [h.amount], method: sameBank(hub, h.to.a) ? "同じ銀行（無料）" : otherBank(hub), lines: h.lines }));
+  if (rakBucket && food > 0) add(hubDay, { who: "G", purpose: "食費を E楽天へ", from: { o: "G", a: rakBucket.acct }, to: { o: "E", a: eRak }, amount: food, chunks: [food], method: "同じ銀行（無料）", lines: foodE });
+  if (charge2 > 0) add(day2, { who: "G", purpose: `${JC}に残りをチャージ`, from: { o: "G", a: gInc }, to: { o: "G", a: JC }, amount: charge2, chunks: splitBy(charge2, PER_TX), method: "チャージ（無料）", lines: [["1日の上限で前日に移せなかった分", charge2]] });
+  if (remDay2 > 0) add(day2, { who: "G", purpose: `G の残りを${hub}へ`, from: { o: "G", a: JC }, to: { o: "G", a: hub }, amount: remDay2, chunks: splitBy(remDay2, PER_TX), method: "J-Coin Pay（無料）",
+    lines: [["G の給与から支払い・お小遣いを引いた残り", remDay2]] });
+  // 振分のあとハブ口座に残るお金（予備）は、全部貯蓄に回す
+  const hubIn = Math.max(eSend, 0) + Math.max(rem, 0);
+  const left = hubIn - hubOut - tot(save);
+  const saveLines = save.concat(left > 0 ? [["残り（予備）も貯蓄へ", left]] : []);
+  const saveTot = tot(saveLines);
+  if (saveTot > 0) add(remDay2 > 0 ? day2 : hubDay, { who: "G", purpose: `${hub}の中で貯蓄に分ける`, from: { o: "G", a: hub }, to: { o: "G", a: hub + "（貯蓄）" }, amount: saveTot, chunks: [saveTot], method: "口座内振替（無料）", lines: saveLines });
 
+  steps.sort((a, b) => a.day - b.day);
   steps.forEach((st, k) => { st.n = k + 1; st.id = [st.day, st.from.a, st.to.o, st.to.a, st.purpose].join("|"); });
 
-  // 5) 振分後の残高（予備）
-  const hubIn = (eSend > 0 ? eSend : 0) + (!keepRem && rem > 0 ? rem : 0) - (food > 0 && !foodByJcoin ? food : 0);
-  const end = [
-    { label: `G ${gInc}`, amt: incG - jcTotal, note: tot(stayG) ? `うち引落し ${yen(tot(stayG))}` : "" },
-    { label: `G ${hub}`, amt: hubIn - saveTot, note: "予備（未配分）" },
-  ];
-  if (hubIn < saveTot) warns.push(`住信SBIに入るお金が、貯蓄に分ける額より ${yen(saveTot - hubIn)}円 足りません。今月は貯蓄を減らすか、予備から補ってください。`);
-  return { c, steps, warns, end, days: [...new Set(steps.map(s => s.day))], A, incG, incE, jwest, estG: !(A.G > 0), estE: !(A.E > 0) };
+  if (left < 0) warns.push(`${hub}に入るお金が、貯蓄に分ける額より ${yen(-left)}円 足りません。今月は貯蓄を減らしてください。`);
+  return { c, steps, warns, days: [...new Set(steps.map(s => s.day))], A, incG, incE, jwest, estG: !(A.G > 0), estE: !(A.E > 0) };
 }
 
 function monthKey() { const d = new Date(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0"); }
@@ -578,20 +593,15 @@ function renderActual(P) {
   $("act-badge").textContent = both ? "実額で計算中" : (P.estG && P.estE ? "概算で表示中" : "一部が概算");
   $("act-badge").classList.toggle("ok", both);
   const d = (P.incG - c.s.income.G) + (P.incE - c.s.income.E);
-  $("act-diff").textContent = (!P.estG || !P.estE) && d !== 0 ? `概算との差：${d > 0 ? "+" : "−"}${yen(Math.abs(d))}円（差は住信SBIの予備で調整）` : "";
+  $("act-diff").textContent = (!P.estG || !P.estE) && d !== 0 ? `概算との差：${d > 0 ? "+" : "−"}${yen(Math.abs(d))}円（差は貯蓄で調整）` : "";
 }
 
 function renderPlan() {
-  const P = buildPlan(state.sid), done = getDone(), who = state.who || "";
+  const P = buildPlan(state.sid), done = getDone(), who = "";
   renderActual(P);
   const now = new Date();
-  $("plan-title").textContent = `${now.getFullYear()}年${now.getMonth() + 1}月の振分`;
-  $("plan-sub").textContent = `シナリオ：${state.sid}`;
-  const all = P.steps, finished = all.filter(s => done.has(s.id)).length;
-  $("plan-bar").style.width = (all.length ? finished / all.length * 100 : 0) + "%";
-  $("plan-count").textContent = finished === all.length && all.length ? `すべて完了しました（${all.length}件）` : `${finished} / ${all.length} 件 完了`;
-  document.querySelectorAll("#plan-who .chip").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.who === who)));
-  $("plan-warn").innerHTML = P.warns.map(w => `<div class="banner" style="margin-top:10px">${esc(w)}</div>`).join("");
+  const all = P.steps;
+  $("plan-warn").innerHTML = P.warns.map(w => `<div class="banner">${esc(w)}</div>`).join("");
   const tag = x => `<span class="acct-tag"><small>${esc(x.o)}</small>${esc(x.a)}</span>`;
   const today = now.getDate();
   $("plan-days").innerHTML = P.days.map(d => {
@@ -610,7 +620,6 @@ function renderPlan() {
         </div></div>`;
     }).join("")}</div>`;
   }).join("");
-  $("plan-end").innerHTML = P.end.map(e => `<div class="bank"><div class="n">${esc(e.label)}</div><div class="v num">${yen(e.amt)}</div><div class="m">${esc(e.note)}</div></div>`).join("");
 }
 
 function renderFlow() {
@@ -817,13 +826,6 @@ $("act-clear").addEventListener("click", () => {
   const b = $("act-clear");
   if (!actClearArmed) { actClearArmed = true; b.textContent = "もう一度押すと消します"; setTimeout(() => { actClearArmed = false; b.textContent = "入力を消す"; }, 3000); return; }
   actClearArmed = false; b.textContent = "入力を消す"; setActual({}); renderPlan();
-});
-$("plan-who").addEventListener("click", e => { const b = e.target.closest(".chip"); if (!b) return; state.who = b.dataset.who; renderPlan(); save(); });
-let resetArmed = false;
-$("plan-reset").addEventListener("click", () => {
-  const b = $("plan-reset");
-  if (!resetArmed) { resetArmed = true; b.textContent = "もう一度押すとチェックを外します"; setTimeout(() => { resetArmed = false; b.textContent = "チェックを外す"; }, 3000); return; }
-  resetArmed = false; b.textContent = "チェックを外す"; setDone(new Set()); renderPlan();
 });
 // 2本指の拡大をしない（iPhone はメタタグだけでは止まらないため）
 document.addEventListener("gesturestart", e => e.preventDefault());
