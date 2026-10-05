@@ -13,8 +13,12 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<link rel="preconnect" href="https://script.google.com">
+<link rel="preconnect" href="https://script.googleusercontent.com">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<!-- フォントは画面の表示を待たせないよう、あとから読み込む -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'">
 <style>
 :root{
   --bg:#f4f6f5; --surface:#ffffff; --sunk:#eaeeec; --line:#d9dfdc;
@@ -864,13 +868,26 @@ function showLock(msg, info) {
 }
 
 let autoTabDone = false;
-function fetchData(code, onDone) {
-  const ok = d => { setCode(code); setLockUntil(0); DB = d;
-    if (!autoTabDone) { autoTabDone = true; const pd = (d.settings && d.settings.payday) || 25, t = new Date().getDate(); if (t === pd || t === pd + 1) state.tab = "plan"; }
-    $("lock").hidden = true; $("app").hidden = false; render(); onDone && onDone(); };
+/* 前回のデータを端末に保存しておき、次に開いたときはすぐ表示 → 裏で最新に更新 */
+const DATA_KEY = "kakeibo-plan-data";
+const getCachedDb = () => { try { return JSON.parse(localStorage.getItem(DATA_KEY) || "null"); } catch (e) { return null; } };
+const setCachedDb = d => { try { d ? localStorage.setItem(DATA_KEY, JSON.stringify(d)) : localStorage.removeItem(DATA_KEY); } catch (e) {} };
+function showApp(d) {
+  DB = d;
+  if (!autoTabDone) { autoTabDone = true; const pd = (d.settings && d.settings.payday) || 25, t = new Date().getDate(); if (t === pd || t === pd + 1) state.tab = "plan"; }
+  $("lock").hidden = true; $("app").hidden = false; render();
+}
+function setSyncing(on) { const b = $("reload"); b.disabled = on; b.textContent = on ? "更新中…" : "再読み込み"; }
+
+function fetchData(code, onDone, opts) {
+  opts = opts || {};
+  const ok = d => { setCode(code); setLockUntil(0); setCachedDb(d); showApp(d); onDone && onDone(); };
   const ng = why => {
     onDone && onDone();
     why = String(why || "");
+    // 裏での更新が通信エラーだけなら、保存済みの画面をそのまま使う
+    if (opts.background && !/LOCKED|WRONG|NO_PIN|NO_API/.test(why)) return;
+    if (/LOCKED|WRONG/.test(why)) setCachedDb(null);
     const m = why.match(/(LOCKED_ALL|LOCKED|WRONG):(\d+)(?::(\d+))?/);
     if (m && m[1] === "LOCKED_ALL") { setCode(""); showLock(`まちがいが多すぎるため、すべての端末で入力を止めています（あと${fmtWait(+m[2])}）。`); }
     else if (m && m[1] === "LOCKED") { setCode(""); setLockUntil(Date.now() + (+m[2]) * 1000); showLock(""); }
@@ -881,7 +898,7 @@ function fetchData(code, onDone) {
   };
   if (!API_URL || /ここに/.test(API_URL)) { ng("NO_API"); return; }
   // text/plain で送ると、Apps Script でもブラウザの事前確認（CORS）が起きない
-  fetch(API_URL, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ pin: code, device: deviceId(), agent: agentInfo() }) })
+  fetch(API_URL, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ pin: code, device: deviceId(), agent: agentInfo(), force: !!opts.force }) })
     .then(r => r.json())
     .then(res => res.ok ? ok(res.data) : ng(res.error || ""))
     .catch(err => { console.error(err); ng("NETWORK"); });
@@ -895,17 +912,26 @@ $("pin").addEventListener("input", e => {
 $("lock-form").addEventListener("submit", e => e.preventDefault());
 
 $("reload").addEventListener("click", () => {
-  const btn = $("reload"); btn.textContent = "読み込み中…"; btn.disabled = true;
-  fetchData(getCode(), () => { btn.textContent = "再読み込み"; btn.disabled = false; });
+  setSyncing(true);
+  fetchData(getCode(), () => setSyncing(false), { force: true });   // 再読み込みは必ずシートを読み直す
 });
-$("logout").addEventListener("click", () => { setCode(""); DB = null; showLock("ロックしました。", true); });
+$("logout").addEventListener("click", () => { setCode(""); setCachedDb(null); DB = null; showLock("ロックしました。", true); });
 
 // オフラインでも画面が開けるように、画面ファイルだけを端末に保存しておく
 if ("serviceWorker" in navigator) { try { navigator.serviceWorker.register("sw.js"); } catch (e) {} }
 // 起動：この端末に PIN が残っていればそのまま開く
 const saved = getCode();
-if (saved && saved.length === PIN_LEN && !(getLockUntil() > Date.now())) { $("pin").disabled = true; $("lock-msg").className = "lock-msg info"; $("lock-msg").textContent = "読み込み中…"; fetchData(saved); }
-else { setCode(""); showLock("", true); }
+if (saved && saved.length === PIN_LEN && !(getLockUntil() > Date.now())) {
+  const cached = getCachedDb();
+  if (cached) {
+    showApp(cached);                                                  // すぐ表示
+    setSyncing(true);
+    fetchData(saved, () => setSyncing(false), { background: true });  // 裏で最新に
+  } else {
+    $("pin").disabled = true; $("lock-msg").className = "lock-msg info"; $("lock-msg").textContent = "読み込み中…"; fetchData(saved);
+  }
+}
+else { setCode(""); setCachedDb(null); showLock("", true); }
 </script>
 </body>
 </html>
